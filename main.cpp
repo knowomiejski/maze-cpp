@@ -15,23 +15,27 @@ enum Direction {
 struct Item {
     int id;
     string itemName;
+    string itemDescription;
 };
 
 struct Room {
     int id;
     string roomName;
+    string roomDescription;
+    string conditionalRoomSucceededDescription;
+    string conditionalRoomFailedDescription;
     int roomToTheNorth;
     int roomToTheEast;
     int roomToTheSouth;
     int roomToTheWest;
-    int requiredItemId;
-    int containsItemId;
+    Item *requiredItem;
+    Item *containsItem;
     bool finalRoom;
 };
 
 struct Player {
     int currentRoomId;
-    int itemsInInventory[4];
+    Item *itemsInInventory[4];
     string pathTaken;
 };
 
@@ -43,7 +47,7 @@ int main()
 initialize_player:
     Player player = {
         0,
-        {0, 0, 0, 0},
+        {nullptr, nullptr, nullptr, nullptr},
         ""
     };
 
@@ -69,12 +73,15 @@ create_maze:
         maze[i] = {
             i+1, //id
             " room", // roomName
+            "", // roomDescription
+            "", // conditionalRoomSucceededDescription
+            "", // conditionalRoomFailedDescription
             0, // roomToTheNorth
             0, // roomToTheEast
             0, // roomToTheSouth
             0, // roomToTheWest
-            0, // requiredItemId
-            0, // containsItemId
+            nullptr, // requiredItem
+            nullptr, // containsItem
             false // finalRoom
         };
     }
@@ -444,17 +451,31 @@ prepare_add_items_to_rooms:
     string firstItemRoomName = "Light";
 
     string conditionalRoomAdjectives[4] = {
-        "Locked", // Needs key - exit
+        "Locked ", // Needs key - exit
         "Creepy", // Needs newspaper - Has key
         "Secret", // Needs secret note - Has newspaper
         "Dark", // Needs torch - Has note
     };
 
+    string conditionalRoomFailedDescriptions[4] = {
+        "You see a big steel door with a key hole in it. When trying to open it, it doens't budge. It seems to be locked.", // Needs key - exit
+        "When entering the room, you see spiderwebs everywhere. Out of the corner of your eye you spot a HUGE spider (at least 2 cm in length). No way you're getting through this room without a serious weapon...", // Needs newspaper - Has key
+        "You don't see any door in this direction, however you get a feeling that this wall look a bit suspicious...", // Needs secret note - Has newspaper
+        "The room you enter has no lightsource whatsoever - it's pitch-black. After stumbeling through the dark for a bit you feel like there's no way you can navigate this room without a lightsource...", // Needs torch - Has note
+    };
+
+    string conditionalRoomSucceededDescriptions[4] = {
+        "You walk to the steel door and insert the key. After turning the key the door opens!", // Needs key - exit
+        "Armed with a rolled up newspaper, the spiders don't stand a chance. You fight your way through the room!", // Needs newspaper - Has key
+        "You look at the wall and see that it matches the drawing you picked up. You find the stone circled on the drawing and push it - the wall swings open revealing a passage.", // Needs secret note - Has newspaper
+        "Having the torch in your makes navigating the room much easier. You enter the room.", // Needs torch - Has note
+    };
+
     Item availableItems[4] = {
-        { 4, "Key" },
-        { 3, "Rolled-up newspaper" },
-        { 2, "Secret note" },
-        { 1, "Torch" },
+        { 4, "Key", "It seems to be a heavy-duty key for a heavy-duty door." },
+        { 3, "Rolled-up newspaper", "Dated 24-01-2025. Doesn't have anything interesting written in it. A formidable weapon when rolled up." },
+        { 2, "Secret note", "A drawing of a wall with a specific stone circled. The note says: 'PRESS' " },
+        { 1, "Torch", "A convienient source of light." },
     };
 
     int addedItems = 0;
@@ -464,8 +485,9 @@ prepare_add_items_to_rooms:
     for (int i = 0; i < 4; i++) {
         if (roomsAdjecentToFirst[i] != 0) {
             // Assign the first item to a room that won't be locked and is next to the starting point
-            maze[roomsAdjecentToFirst[i] - 1].containsItemId = availableItems[3].id;
+            maze[roomsAdjecentToFirst[i] - 1].containsItem = &availableItems[3];
             maze[roomsAdjecentToFirst[i] - 1].roomName = firstItemRoomName;
+            maze[roomsAdjecentToFirst[i] - 1].roomDescription = "The room is illuminated by torches, like a hall in a medieval castle.";
             break;
         }
     }
@@ -475,7 +497,7 @@ add_items_to_rooms:
     // Don't add item or requirement to the first room
     for (int i = roomAmount - 1; i > 1; i--) {
         // skip already assigned rooms
-        if (maze[i].containsItemId != 0 || maze[i].requiredItemId != 0) continue;
+        if (maze[i].containsItem != nullptr || maze[i].requiredItem != nullptr) continue;
         int adjecentCount = 0;
         if (maze[i].roomToTheNorth != 0) {
             adjecentCount++;
@@ -497,10 +519,12 @@ add_items_to_rooms:
         if (addedItems <= 0) {
             maze[i].finalRoom = true;
         } else {
-            maze[i].containsItemId = availableItems[addedItems - 1].id;
+            maze[i].containsItem = &availableItems[addedItems - 1];
         }
         maze[i].roomName = conditionalRoomAdjectives[addedItems];
-        maze[i].requiredItemId = availableItems[addedItems].id;
+        maze[i].conditionalRoomSucceededDescription = conditionalRoomSucceededDescriptions[addedItems];
+        maze[i].conditionalRoomFailedDescription = conditionalRoomFailedDescriptions[addedItems];
+        maze[i].requiredItem = &availableItems[addedItems];
         addedItems++;
         if (addedItems == 4) break;
     }
@@ -510,7 +534,6 @@ add_items_to_rooms:
         maxAdjecent++;
         goto add_items_to_rooms;
     }
-
 
     // assign rest of the room names
     string roomNameAdjectives[18] {
@@ -540,26 +563,108 @@ add_items_to_rooms:
         }
     }
 
+place_player:
+    char direction;
+    player.currentRoomId = 1;
+    Room roomToMoveTo = maze[player.currentRoomId - 1];
+    cout << "============================================================================" << endl;
+    cout << "You wake up in a strange empty mansion." << endl;
+    cout << "You are not sure what this place is, but you should find a way out asap..." << endl;
+    cout << "============================================================================" << endl;
+    
+ask_direction:
+    cout << endl;
+    cout << "============================================================================" << endl;
+    cout << "You are now in a " << maze[player.currentRoomId - 1].roomName  << " room"<< endl;
+    cout << "Which way do you want to go? Type N, E, S or W to head in that direction." << endl;
+    cout << "============================================================================" << endl;
+    scanf(" %c", &direction);
 
-print_current_position:
-    for (int i = 0; i < roomAmount; i++) {
-        cout << endl;
-        cout << maze[i].roomName << " - " << maze[i].id << endl;
-        if (maze[i].finalRoom) {
-            cout << "Final Room!" << endl;
-        }
-        if (maze[i].containsItemId) {
-            cout << "Has item: " << availableItems[4 - maze[i].containsItemId].itemName << endl;
-        }
-        if (maze[i].requiredItemId) {
-            cout << "Requires item: " << availableItems[4 - maze[i].requiredItemId].itemName << endl;
-        }
-        cout << "North: "<< to_string(maze[i].roomToTheNorth) << endl;
-        cout << "East: "<< to_string(maze[i].roomToTheEast) << endl;
-        cout << "South: "<< to_string(maze[i].roomToTheSouth) << endl;
-        cout << "West: "<< to_string(maze[i].roomToTheWest) << endl;
+move_to_room:
+    int roomToMoveToId = 0;
+    string directionAsWord = "";
+    if (direction == 'N') {
+        roomToMoveToId = maze[player.currentRoomId - 1].roomToTheNorth;
+        directionAsWord = "north";
+    } else if (direction == 'E') {
+        roomToMoveToId = maze[player.currentRoomId - 1].roomToTheEast;
+        directionAsWord = "east";
+    } else if (direction == 'S') {
+        roomToMoveToId = maze[player.currentRoomId - 1].roomToTheSouth;
+        directionAsWord = "south";
+    } else if (direction == 'W') {
+        roomToMoveToId = maze[player.currentRoomId - 1].roomToTheWest;
+        directionAsWord = "west";
+    } else {
+        cout << "You walk around confused... Seems like you have forgotten the directions on a compass." << direction << endl;
+        goto ask_direction;
     }
+    cout << "You head "<< directionAsWord << "." << endl;
 
+    if (roomToMoveToId > 0) {
+        if (maze[roomToMoveToId - 1].requiredItem != nullptr) {
+            bool hasRequiredItem = false;
+            for (int i = 0; i < 4; i++) {
+                if (player.itemsInInventory[i] == maze[roomToMoveToId - 1].requiredItem) {
+                    hasRequiredItem = true;
+                    break;
+                }
+            }
+            if (hasRequiredItem) {
+                cout << maze[roomToMoveToId - 1].conditionalRoomSucceededDescription << endl;
+            } else {
+                cout << maze[roomToMoveToId - 1].conditionalRoomFailedDescription << endl;
+                goto ask_direction;
+            }
+        }
+        
+        if (maze[roomToMoveToId- 1].containsItem != nullptr) {
+            //
+            if (maze[roomToMoveToId - 1].roomDescription != "") {
+                cout << maze[roomToMoveToId - 1].roomDescription << endl;
+            }
+            cout << "You found: " << maze[roomToMoveToId - 1].containsItem->itemName << " - " << maze[roomToMoveToId - 1].containsItem->itemDescription << endl;
+            for (int i = 0; i < 4; i++) {
+                if (player.itemsInInventory[i] == nullptr) {
+                    player.itemsInInventory[i] = maze[roomToMoveToId - 1].containsItem;
+                    maze[roomToMoveToId- 1].containsItem = nullptr;
+                    break;
+                }
+            }
+        }
+        player.currentRoomId = roomToMoveToId;
+        if (maze[player.currentRoomId - 1].finalRoom) {
+            cout << "You found the exit!" << endl;
+            goto you_won_exit_game;
+        }
+        cout << "You enter a room." << endl;
+        goto ask_direction;
+    } else {
+        cout << "To the "<< directionAsWord <<" of you is a wall. There's got to be another way..." << endl;
+        goto ask_direction;
+    }
+    
+
+// print_current_position:
+//     for (int i = 0; i < roomAmount; i++) {
+//         cout << endl;
+//         cout << maze[i].roomName << " - " << maze[i].id << endl;
+//         if (maze[i].finalRoom) {
+//             cout << "Final Room!" << endl;
+//         }
+//         if (maze[i].containsItemId) {
+//             cout << "Has item: " << availableItems[4 - maze[i].containsItemId].itemName << endl;
+//         }
+//         if (maze[i].requiredItemId) {
+//             cout << "Requires item: " << availableItems[4 - maze[i].requiredItemId].itemName << endl;
+//         }
+//         cout << "North: "<< to_string(maze[i].roomToTheNorth) << endl;
+//         cout << "East: "<< to_string(maze[i].roomToTheEast) << endl;
+//         cout << "South: "<< to_string(maze[i].roomToTheSouth) << endl;
+//         cout << "West: "<< to_string(maze[i].roomToTheWest) << endl;
+//     }
+
+you_won_exit_game:
     delete []maze;
 
     return 0;
